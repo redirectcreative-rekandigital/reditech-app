@@ -21,7 +21,7 @@ const GROUPS: AdminNavGroup[] = [
       {
         href: "/admin/entitlement",
         label: "Entitlement",
-        capability: "order:read",
+        capability: "entitlement:grant",
         prefix: true,
       },
       { href: "/admin/audit", label: "Audit", capability: "audit:read", prefix: true },

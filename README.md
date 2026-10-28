@@ -8,7 +8,7 @@ tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `../prd/`.
 
 ## Status
 
-**M3 fase 1 — autentikasi admin, MFA, dan RBAC.** Beranda, katalog, dan detail item sudah dirender server dari PostgreSQL (M1), alur unduhan gratis lengkap (M2), dan panel admin kini benar-benar tertutup: login kata sandi, MFA TOTP wajib, sesi yang bisa dicabut, serta kapabilitas per rute. Isi panel (CRUD item, taksonomi, media, tutorial, ulasan, pengaturan, audit) masih kerangka `RouteStub` yang sudah dijaga kapabilitas — lihat `../prd/06-milestones.md` §M3.
+**M3 — admin.** Beranda, katalog, dan detail item dirender server dari PostgreSQL (M1), alur unduhan gratis lengkap (M2), dan panel admin tertutup: login kata sandi, MFA TOTP wajib, sesi yang bisa dicabut, serta kapabilitas per rute. Kategori dan teknologi sudah bisa dikelola penuh dari panel; layar panel lain masih kerangka `RouteStub` yang sudah dijaga kapabilitas — lihat `../prd/06-milestones.md` §M3.
 
 ## Stack
 
@@ -200,6 +200,28 @@ sendiri karena Auth.js Credentials tidak mendukung database session, sedangkan F
 mewajibkan sesi yang bisa dicabut. Tabel `sessions` tetap kompatibel dengan skema
 Auth.js sehingga Google OAuth di M4 bisa memakainya.
 
+## Panel admin
+
+Selain autentikasi, dua layar panel sudah berfungsi penuh:
+
+| Layar | Kapabilitas | Isi |
+| --- | --- | --- |
+| `/admin/kategori` | `taxonomy:read` | Tambah/sunting/hapus kategori, slug otomatis, urutan, status aktif |
+| `/admin/teknologi` | `taxonomy:read` | Tambah/sunting/hapus teknologi, slug otomatis |
+
+Aturan yang dijaga di server, bukan hanya di UI:
+
+- Slug kanonik (`src/lib/slug.ts`) dan unik; slug kosong dibuat dari nama.
+- Kategori/teknologi yang masih dipakai item (atau tutorial) **tidak bisa dihapus**;
+  UI mematikan tombolnya, dan Server Action tetap menolak bila baris sudah basi.
+- Setiap mutasi menulis satu baris `admin_audit_logs` berisi diff.
+- Setelah simpan, `updateTag("categories"|"items")` menyegarkan chip katalog dan
+  halaman item.
+
+Komponen bersama untuk layar panel berikutnya ada di `src/components/admin/`:
+`AdminPageHeader`, `ActionForm` (status aksi + toast + `router.refresh()`),
+`EmptyState`, dan `DeleteRowButton`.
+
 ## Struktur
 
 ```
@@ -222,12 +244,13 @@ src/
 │   ├── download/     # AdGateCountdown, FileSizeNotice
 │   ├── media/        # MediaImage (optimizer dilewati untuk aset lokal)
 │   ├── auth/         # formulir masuk, verifikasi MFA, enrol, tombol keluar
+│   ├── admin/        # AdminPageHeader, ActionForm, EmptyState, tombol hapus baris
 │   ├── system/       # ForbiddenView bersama untuk /403 dan forbidden.tsx
 │   ├── dev/          # RouteStub untuk kerangka M0, pratinjau komponen
 │   └── seo/          # JSON-LD Organization + Product/BreadcrumbList
 ├── lib/              # util bersama (prisma, catalog, items, format, media, og, site)
 │   ├── auth/         # sesi, kata sandi scrypt, TOTP, kapabilitas, aktor
-│   ├── admin/        # audit log, revisi, nav berfilter kapabilitas, peta rute
+│   ├── admin/        # audit log, revisi, nav berfilter kapabilitas, peta rute, taksonomi
 │   ├── downloads/    # gate, token, kuota, akses item
 │   ├── storage/      # StorageProvider: local + Google Drive
 │   └── http/         # amplop error API, replay halaman status
@@ -307,10 +330,11 @@ memanggil `revalidateTag`.
   ada di `../prd/09-superadmin-admin.md` (tab Identitas), implementasi di M3.
 - Kartu sponsor di beranda (FR-CAT-13) dan slot iklan interstisial masih
   placeholder jujur; data sponsor belum ada sampai M6.
-- Isi panel admin M3 fase 2: CRUD item + gate publikasi, taksonomi, pustaka media,
-  tutorial, `/admin/ulasan`, pengaturan (termasuk aset brand/landing sebagai baris
-  `Media`), audit + ekspor CSV. Halamannya sudah ada dan sudah dijaga kapabilitas,
-  tetapi masih `RouteStub`.
+- Isi panel admin M3 fase 2 selain taksonomi: CRUD item + gate publikasi, pustaka
+  media, tutorial, `/admin/ulasan`, pengaturan (termasuk aset brand/landing sebagai
+  baris `Media`), audit + ekspor CSV. Halamannya sudah ada dan sudah dijaga
+  kapabilitas, tetapi masih `RouteStub`. Kategori dan teknologi sudah berfungsi
+  penuh (lihat bagian *Panel admin*).
 - Google OAuth dan seluruh alur akun pembeli (`/dashboard`, profil, riwayat) — M4.
 - Integrasi DOKU dan pembayaran; jalur premium berhenti di `?beli=1`.
 - Google Drive sebagai driver produksi (kredensial service account belum ada);
