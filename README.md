@@ -44,6 +44,21 @@ docker compose -f docker-compose.dev.yml exec app npm run db:deploy
 docker compose -f docker-compose.dev.yml exec app npm run db:seed
 ```
 
+### Database tanpa Docker
+
+Di mesin ini Docker belum dipasang dan drive C: hampir penuh, jadi PostgreSQL 16
+dijalankan **portable dari drive D** (`D:\reditech-tools`, di luar repo):
+
+```powershell
+& "D:\reditech-tools\pgsql\bin\pg_ctl.exe" -D "D:\reditech-tools\pgdata" `
+    -l "D:\reditech-tools\pg.log" -o "-p 5432" start
+& "D:\reditech-tools\pgsql\bin\pg_ctl.exe" -D "D:\reditech-tools\pgdata" stop
+```
+
+Basis data `reditech`, pengguna `reditech` — sama dengan `DATABASE_URL` di `.env`.
+Redis belum ada di setup ini; `REDIS_URL` dikosongkan agar `/api/health`
+melaporkan `not_configured` (bukan `down`). Redis baru dibutuhkan pada M2.
+
 ## Skrip
 
 | Skrip | Isi |
@@ -101,7 +116,7 @@ prisma/
 - Integrasi DOKU, proxy Drive, dan unggah media.
 - Route handler API selain `/api/health`.
 - Service worker untuk `/offline`.
-- Verifikasi `prisma migrate deploy` di database sungguhan (Docker belum terpasang di mesin ini).
+- Redis lokal (menyusul M2; rate limit unduhan).
 
 ## Catatan dependensi
 
