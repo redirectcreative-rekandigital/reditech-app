@@ -6,12 +6,16 @@ import {
   countCatalogForFilters,
   parseCatalogFilters,
 } from "@/lib/catalog";
+import { adminPathCapability } from "@/lib/admin/route-capability";
 import {
   GATE_COOKIE,
   gateCookieOptions,
   signGate,
   verifyGate,
 } from "@/lib/downloads/gate";
+import { SESSION_COOKIE, MFA_CHALLENGE_COOKIE } from "@/lib/auth/cookies";
+import { hasCapability } from "@/lib/auth/permissions";
+import { sessionActorForToken } from "@/lib/auth/proxy-session";
 import { getItemAccess, getItemStatus } from "@/lib/items";
 
 /**
@@ -27,6 +31,7 @@ const APEX_HOST = "reditech.id";
 const CANONICAL_HOST = "www.reditech.id";
 
 const PRIVATE_PATH = /^\/(admin|dashboard)(\/|$)/;
+const ADMIN_PATH = /^\/admin(\/|$)/;
 const DOWNLOAD_PATH = /^\/download(\/|$)/;
 const API_PATH = /^\/api(\/|$)/;
 const ITEM_PATH = /^\/source-code\/([^/]+)$/;
@@ -52,9 +57,15 @@ const STATUS_PAGE_HEADER = "x-reditech-status-page";
  * skrip bootstrap Next. Karena HTML kita tidak pernah memuat masukan pengguna
  * yang direfleksikan, `'unsafe-inline'` dipakai khusus untuk skrip/gaya.
  * Rasional lengkap: `12-route-map.md` 12.1.
+ *
+ * `upgrade-insecure-requests` hanya dikirim bila permintaan memang sudah https.
+ * Diuji: saat `next start` lokal diakses lewat http, direktif itu membuat
+ * prefetch RSC internal (`http://localhost:3100/admin/mfa`) di-upgrade menjadi
+ * https dan gagal (`ERR_SSL_PROTOCOL_ERROR`), sehingga navigasi klien tertinggal
+ * di halaman lama. Di produksi (Caddy + Cloudflare) permintaan selalu https.
  */
-function contentSecurityPolicy(isDev: boolean) {
-  return [
+function contentSecurityPolicy(isDev: boolean, isHttps: boolean) {
+  const directives = [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
@@ -65,15 +76,24 @@ function contentSecurityPolicy(isDev: boolean) {
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",
-    "upgrade-insecure-requests",
-  ].join("; ");
+  ];
+
+  if (isHttps) directives.push("upgrade-insecure-requests");
+
+  return directives.join("; ");
 }
 
 /** Header keamanan + kebijakan cache untuk semua respons publik. */
-function applyHeaders(response: NextResponse, requestId: string, lowerPath: string, method: string) {
+function applyHeaders(
+  response: NextResponse,
+  requestId: string,
+  lowerPath: string,
+  method: string,
+  isHttps: boolean,
+) {
   response.headers.set(
     "content-security-policy",
-    contentSecurityPolicy(process.env.NODE_ENV === "development"),
+    contentSecurityPolicy(process.env.NODE_ENV === "development", isHttps),
   );
   response.headers.set("x-request-id", requestId);
   response.headers.set(
@@ -138,6 +158,13 @@ async function catalogRedirect(nextUrl: NextRequest["nextUrl"]): Promise<string 
   return nextUrl.pathname + nextUrl.search === canonical ? null : canonical;
 }
 
+/** Protokol efektif: di produksi TLS berakhir di Caddy/Cloudflare. */
+function isHttpsRequest(request: NextRequest): boolean {
+  const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded === "https";
+  return request.nextUrl.protocol === "https:";
+}
+
 /**
  * Ambil HTML halaman status internal lalu kirim ulang dengan status yang
  * diminta.
@@ -167,6 +194,7 @@ async function statusPage(
     requestId,
     request.nextUrl.pathname.toLowerCase(),
     request.method,
+    isHttpsRequest(request),
   );
 }
 
@@ -175,17 +203,20 @@ export default async function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
   const requestId = crypto.randomUUID();
   const lowerPath = nextUrl.pathname.toLowerCase();
+  const isHttps = isHttpsRequest(request);
 
   // Teruskan `x-request-id` ke route handler/page agar amplop error memakai
-  // nilai yang sama dengan header respons (bukan id acak baru).
+  // nilai yang sama dengan header respons (bukan id acak baru), dan
+  // `x-pathname` agar layout bisa tahu rute aktif (Layout tidak menerima URL).
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-request-id", requestId);
+  requestHeaders.set("x-pathname", nextUrl.pathname);
   const forward = () => NextResponse.next({ request: { headers: requestHeaders } });
 
   // Permintaan internal untuk mengambil HTML halaman status: jangan diproses
   // ulang, cukup render halamannya.
   if (request.headers.get(STATUS_PAGE_HEADER) === "1") {
-    return applyHeaders(forward(), requestId, lowerPath, request.method);
+    return applyHeaders(forward(), requestId, lowerPath, request.method, isHttps);
   }
 
   // 1. Apex → www. Caddy juga menangani ini; proxy menjadi jaring pengaman.
@@ -228,6 +259,7 @@ export default async function proxy(request: NextRequest) {
           requestId,
           lowerPath,
           request.method,
+          isHttps,
         );
       }
     } catch {
@@ -256,6 +288,7 @@ export default async function proxy(request: NextRequest) {
           requestId,
           lowerPath,
           request.method,
+          isHttps,
         );
       }
 
@@ -280,12 +313,69 @@ export default async function proxy(request: NextRequest) {
     if (slug && isAdsPage && !verifyGate(request.cookies.get(GATE_COOKIE)?.value, slug)) {
       const response = forward();
       response.cookies.set(GATE_COOKIE, signGate(slug), gateCookieOptions());
-      return applyHeaders(response, requestId, lowerPath, request.method);
+      return applyHeaders(response, requestId, lowerPath, request.method, isHttps);
     }
   }
 
-  // 6. Header keamanan dan kebijakan cache.
-  return applyHeaders(forward(), requestId, lowerPath, request.method);
+  // 6. Panel admin: anonim → login, non-admin → 403, admin tanpa MFA → enrol.
+  //    Pemeriksaan dilakukan di sini karena setelah shell PPR terkirim status
+  //    tidak bisa diubah (sama seperti 404/410 item). Halaman dan Server Action
+  //    tetap memanggil `requireAdmin()`/`requireCapability()` sendiri sebagai
+  //    lapisan kedua.
+  if (request.method === "GET" && ADMIN_PATH.test(lowerPath)) {
+    const loginUrl = new URL("/login", nextUrl);
+    loginUrl.searchParams.set("redirect", `${nextUrl.pathname}${nextUrl.search}`);
+
+    const token = request.cookies.get(SESSION_COOKIE)?.value;
+    if (!token) return NextResponse.redirect(loginUrl, 307);
+
+    // `null` = sesi tidak sah; `undefined` = database tidak terjangkau, dan
+    // gangguan sementara tidak boleh diperlakukan sebagai "keluar".
+    let actor: Awaited<ReturnType<typeof sessionActorForToken>> | undefined;
+    try {
+      actor = await sessionActorForToken(token);
+    } catch {
+      actor = undefined;
+    }
+
+    if (actor === null) {
+      const response = NextResponse.redirect(loginUrl, 307);
+      response.cookies.delete(SESSION_COOKIE);
+      return applyHeaders(response, requestId, lowerPath, request.method, isHttps);
+    }
+
+    if (actor) {
+      if (actor.role !== "ADMIN" && actor.role !== "SUPERADMIN") {
+        return await statusPage(request, "/403", 403, requestId);
+      }
+
+      // AC-ADM-11: tanpa TOTP hanya halaman enrol yang boleh dibuka.
+      if (!actor.mfaEnabled && lowerPath !== "/admin/mfa") {
+        return NextResponse.redirect(new URL("/admin/mfa", nextUrl), 307);
+      }
+
+      // 403 per kapabilitas juga harus terjadi sebelum render; `forbidden()` di
+      // dalam halaman hanya menghasilkan pengalihan sisi klien dengan status 200.
+      const required = adminPathCapability(lowerPath);
+      if (required && !hasCapability(actor, required)) {
+        return await statusPage(request, "/403", 403, requestId);
+      }
+    }
+  }
+
+  // 7. Verifikasi MFA tanpa cookie tantangan tidak punya apa pun untuk
+  //    diverifikasi: kembali ke form masuk sebelum shell terkirim.
+  if (request.method === "GET" && lowerPath === "/login/mfa") {
+    if (!request.cookies.get(MFA_CHALLENGE_COOKIE)?.value) {
+      const loginUrl = new URL("/login", nextUrl);
+      const redirectParam = nextUrl.searchParams.get("redirect");
+      if (redirectParam) loginUrl.searchParams.set("redirect", redirectParam);
+      return NextResponse.redirect(loginUrl, 307);
+    }
+  }
+
+  // 8. Header keamanan dan kebijakan cache.
+  return applyHeaders(forward(), requestId, lowerPath, request.method, isHttps);
 }
 
 export const config = {

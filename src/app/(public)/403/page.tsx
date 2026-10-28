@@ -1,20 +1,18 @@
 import type { Metadata } from "next";
 
-import { RouteStub } from "@/components/dev/route-stub";
+import { ForbiddenView } from "@/components/system/forbidden-view";
 
 export const metadata: Metadata = {
-  title: "Akses ditolak",
+  title: "Tidak punya akses",
+  description: "Akun ini tidak memiliki izin membuka panel pengelola Reditech.",
   robots: { index: false, follow: false },
 };
 
+/**
+ * Sasaran proxy untuk akun non-admin, dikirim ulang dengan status `403`.
+ * Alasannya sama dengan `/404` dan `/410`: status HTTP harus ditentukan
+ * sebelum render (lihat `12-route-map.md` 12).
+ */
 export default function Page() {
-  return (
-    <RouteStub
-      screen="S29"
-      title="Akses ditolak"
-      description="Halaman 403 yang menjelaskan bahwa akun ini tidak memiliki kapabilitas untuk membuka panel admin."
-      requirement="AC-ADM-09"
-      milestone="M3"
-    />
-  );
+  return <ForbiddenView />;
 }

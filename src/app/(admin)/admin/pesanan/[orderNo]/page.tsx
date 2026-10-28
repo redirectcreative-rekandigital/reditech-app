@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { RouteStub } from "@/components/dev/route-stub";
+import { requireCapability } from "@/lib/auth/actor";
 
 export const metadata: Metadata = {
   title: "Detail pesanan",
@@ -16,6 +17,10 @@ type PageProps = { params: Promise<{ orderNo: string }> };
 
 export default async function Page({ params }: PageProps) {
   const { orderNo } = await params;
+  // Guard per halaman: layout tidak menghentikan render segmen lain, jadi
+  // otorisasi tidak boleh bergantung pada layout (09-superadmin-admin.md 8).
+  await requireCapability("order:read");
+
 
   return (
     <RouteStub

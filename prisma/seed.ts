@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { PrismaClient, type Prisma } from "@prisma/client";
 
+import { hashPassword } from "../src/lib/auth/password";
+import { BUNDLES } from "../src/lib/auth/permissions";
 import { ensureDemoArchive } from "./seed-storage";
 
 /**
@@ -15,6 +17,18 @@ import { ensureDemoArchive } from "./seed-storage";
 const prisma = new PrismaClient();
 
 const SUPERADMIN_EMAIL = process.env.SEED_SUPERADMIN_EMAIL ?? "admin@reditech.id";
+
+/**
+ * Kata sandi awal superadmin. Di produksi seed **tidak** memasang kata sandi
+ * cadangan: akun pemilik masuk lewat Google OAuth atau undangan (M4). Di
+ * pengembangan, kata sandi ini membuat panel bisa diuji tanpa OAuth.
+ *
+ * `SEED_ADMIN_PASSWORD=` (kosong) dianggap tidak diisi, supaya `.env` hasil
+ * salinan `.env.example` tidak diam-diam mematikan akun uji.
+ */
+const EXPLICIT_PASSWORD = process.env.SEED_ADMIN_PASSWORD?.trim() || null;
+const SEED_PASSWORD =
+  EXPLICIT_PASSWORD ?? (process.env.NODE_ENV === "production" ? null : "Reditech#2026");
 
 const categories = [
   { name: "CodeIgniter", slug: "codeigniter", order: 1 },
@@ -207,18 +221,75 @@ async function upsertSeedMedia(slug: string, title: string, index: number) {
 }
 
 async function main() {
+  // Di produksi `SEED_PASSWORD` null: akun pemilik masuk lewat Google OAuth
+  // atau undangan admin (M4), jadi seed tidak menanam kata sandi cadangan.
+  const passwordHash = SEED_PASSWORD ? await hashPassword(SEED_PASSWORD) : null;
+
+  const existingSuperadmin = await prisma.user.findUnique({
+    where: { email: SUPERADMIN_EMAIL },
+    select: { passwordHash: true },
+  });
+
+  // Kata sandi hanya ditulis ulang bila diminta eksplisit, atau bila akun
+  // belum punya sama sekali (seed lama). Kata sandi yang sudah diganti pemilik
+  // tidak pernah dikembalikan oleh seed ulang.
+  const writePassword = Boolean(
+    passwordHash && (EXPLICIT_PASSWORD || !existingSuperadmin?.passwordHash),
+  );
+
   const superadmin = await prisma.user.upsert({
     where: { email: SUPERADMIN_EMAIL },
-    update: { role: "SUPERADMIN", status: "ACTIVE" },
-    // Tanpa passwordHash: masuk lewat Google OAuth atau undangan admin.
+    update: {
+      role: "SUPERADMIN",
+      status: "ACTIVE",
+      ...(writePassword ? { passwordHash } : {}),
+    },
     create: {
       email: SUPERADMIN_EMAIL,
       name: "Superadmin Reditech",
       role: "SUPERADMIN",
       status: "ACTIVE",
       emailVerified: new Date(),
+      passwordHash,
     },
   });
+
+  // Akun uji pengembangan supaya matriks izin bisa dicoba tanpa OAuth:
+  // ADMIN dengan bundel Editor (belum ber-MFA, jadi gerbang enrol teruji) dan
+  // seorang USER untuk membuktikan `/admin` → 403 (AC-ADM-10).
+  if (passwordHash && process.env.NODE_ENV !== "production") {
+    const devAccounts = [
+      {
+        email: "editor@reditech.id",
+        name: "Editor Reditech",
+        role: "ADMIN" as const,
+        permissions: [...BUNDLES.editor],
+      },
+      {
+        email: "pengguna@reditech.id",
+        name: "Pengguna Uji",
+        role: "USER" as const,
+        permissions: [],
+      },
+    ];
+
+    for (const account of devAccounts) {
+      await prisma.user.upsert({
+        where: { email: account.email },
+        update: {
+          role: account.role,
+          permissions: account.permissions,
+          status: "ACTIVE",
+        },
+        create: {
+          ...account,
+          status: "ACTIVE",
+          emailVerified: new Date(),
+          passwordHash,
+        },
+      });
+    }
+  }
 
   for (const category of categories) {
     await prisma.category.upsert({
