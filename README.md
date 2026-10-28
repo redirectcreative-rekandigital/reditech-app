@@ -8,9 +8,11 @@ tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `../prd/`.
 
 ## Status
 
-**M0 — Fondasi.** Struktur, tema, kerangka rute, skema database, dan health
-check selesai. Belum ada data yang tampil di UI, autentikasi, atau pembayaran.
-Lihat `../prd/06-milestones.md`.
+**M1 — Katalog publik.** Beranda, katalog (filter/pencarian/paginasi), dan halaman
+detail item sudah dirender server dari PostgreSQL. Item arsip membalas `410` dan
+slug yang tidak ada membalas `404`; keduanya diputuskan di proxy sebelum shell PPR
+dikirim. Belum ada autentikasi, unduhan nyata, atau pembayaran — lihat
+`../prd/06-milestones.md`.
 
 ## Stack
 
@@ -71,7 +73,20 @@ melaporkan `not_configured` (bukan `down`). Redis baru dibutuhkan pada M2.
 | `npm run db:generate` | Regenerasi Prisma Client |
 | `npm run db:migrate` | Migrasi baru saat pengembangan |
 | `npm run db:deploy` | Terapkan migrasi yang ada (CI/produksi) |
-| `npm run db:seed` | Seed idempoten: superadmin, kategori, teknologi, setting, 3 item, 2 tutorial |
+| `npm run db:seed` | Seed idempoten: superadmin, kategori, teknologi, setting, 3 item + 6 media, 2 tutorial |
+
+## Data contoh
+
+Seed membuat 3 item (`pos-kasir-laravel` gratis, `undangan-digital-nextjs` dan
+`erp-gudang-laravel` premium) dengan tanggal terbit berbeda supaya urutan
+`newest`/`oldest` benar-benar berubah. Setiap item mendapat 2 screenshot dari
+`public/seed/*.svg` (1200×760, dibuat khusus untuk demo) dan thumbnail yang
+menunjuk screenshot pertama.
+
+Key media yang diawali `/` berarti aset di `public/`; key R2 tidak pernah diawali
+garis miring. `mediaUrl()` membedakan keduanya, dan `MediaImage` melewati optimizer
+untuk aset lokal (SVG). Bila berkas demo dihapus, katalog tetap berjalan: kartu
+menampilkan inisial judul.
 | `npm run db:studio` | Prisma Studio |
 
 ## Struktur
@@ -90,10 +105,13 @@ src/
 │   ├── ui/           # shadcn — dihasilkan CLI, jangan diedit manual
 │   ├── ui-ext/       # Button, Badge, IconButton dengan varian produk
 │   ├── layout/       # Container, header, footer, shell dashboard/admin
-│   ├── dev/          # RouteStub untuk kerangka M0
-│   └── seo/          # JSON-LD
-├── lib/              # util bersama (prisma, redis, og, site, ...)
-└── proxy.ts          # CSP, HSTS, apex → www, noindex panel
+│   ├── catalog/      # FilterBar, ItemCard, Pagination, ResultCount, skeleton
+│   ├── item/         # galeri + lightbox, panel unduhan, tombol bagikan
+│   ├── media/        # MediaImage (optimizer dilewati untuk aset lokal)
+│   ├── dev/          # RouteStub untuk kerangka M0, pratinjau komponen
+│   └── seo/          # JSON-LD Organization + Product/BreadcrumbList
+├── lib/              # util bersama (prisma, catalog, items, format, media, og, site)
+└── proxy.ts          # CSP, HSTS, apex → www, kanonik katalog, status 404/410
 
 prisma/
 ├── schema.prisma     # transkripsi prd/03-data-model.md
@@ -101,17 +119,55 @@ prisma/
 └── seed.ts           # data minimum §5
 ```
 
+## Proxy dan status HTTP
+
+`src/proxy.ts` bukan hanya pemasang header; ia menentukan status akhir untuk
+katalog dan item **sebelum** shell PPR dikirim:
+
+| Permintaan | Hasil |
+| --- | --- |
+| `reditech.id/*` | `308` ke `www.reditech.id` |
+| `/Source-Code` | `308` ke huruf kecil |
+| `?page=99`, `?page=abc`, `?page=0`, `?page=2` (di luar rentang) | `308` ke URL kanonik |
+| `?type=PREMIUM&sort=newest` | `308` ke `?type=PREMIUM` |
+| `?utm_source=…` (parameter tak dikenal) | `200`, kanonikalisasi dilewati |
+| `/source-code/<arsip>` | `410` + isi halaman `/410` |
+| `/source-code/<tidak ada>` | `404` + isi halaman `/404` |
+
+`permanentRedirect()` atau `notFound()` di dalam `<Suspense>` hanya menghasilkan
+`200` + pengalihan sisi klien, jadi keduanya tidak dipakai untuk kasus di atas.
+
+Status `410` tidak bisa dipasang lewat `rewrite('/410', { status: 410 })` di
+`next start`: halaman `/410` diprerender dan entri cache-nya membalas `200`.
+Proxy karena itu mengambil HTML `/410` sekali dengan header internal
+`x-reditech-status-page: 1`, lalu membalasnya dengan status `410`. Rasional
+lengkap ada di `../prd/12-route-map.md` §9 dan §12.0.
+
+## Cache
+
+Dengan `cacheComponents: true`, tidak ada `export const revalidate`; umur cache
+ditentukan di fungsi data:
+
+| Fungsi | `cacheLife` | Tag |
+| --- | --- | --- |
+| `getFeaturedItems()` | `minutes` (60 s) | `items` |
+| `getItemDetail(slug)` | `minutes` (60 s) | `item:<slug>`, `items` |
+| `getCatalogCategories()` | `hours` | `categories` |
+| `getItemStatus(slug)` | tanpa cache | — (proxy harus melihat arsip seketika) |
+
 ## Konvensi
 
 - Warna, tipografi, radius, dan spacing **hanya** dari `../prd/design.md` dan
   `../prd/10-design-tokens.md`. Tidak ada hex baru di komponen.
 - `cn` berasal dari paket [`cn`](https://github.com/shadcn-ui/cn) (shadcn 2026),
   bukan `clsx` + `tailwind-merge`.
-- Semua halaman kerangka memakai `RouteStub`; komponen itu dihapus bertahap.
+- Halaman yang belum diimplementasikan (tutorial, dashboard, admin, checkout, donasi)
+  masih memakai `RouteStub`; komponen itu dihapus bertahap per milestone.
 
 ## Yang belum ada
 
 - Logo, wordmark, favicon, ikon PWA 192/512, dan aset OG statis.
+- Kartu sponsor di beranda (FR-CAT-13) — belum ada datanya sampai M2/M6.
 - Auth.js, guard kapabilitas, dan halaman `/admin` yang benar-benar tertutup.
 - Integrasi DOKU, proxy Drive, dan unggah media.
 - Route handler API selain `/api/health`.

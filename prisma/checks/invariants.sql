@@ -110,4 +110,19 @@ WHERE status = 'PUBLISHED'
 
 SELECT round(similarity('kasir toko', 'kasir')::numeric, 3) AS skor_trigram;
 
+-- Ambang pencarian aplikasi (`03-data-model.md` §4): typo ringan lolos,
+-- kata sampah tidak. Gagal = ambang atau fungsi SQL di aplikasi berubah.
+DO $$
+BEGIN
+  IF word_similarity('kasirr', 'Aplikasi POS Kasir Laravel') <= 0.5 THEN
+    RAISE EXCEPTION 'FR-CAT-14: word_similarity("kasirr") harus > 0.5';
+  END IF;
+
+  IF word_similarity('zzz', 'Aplikasi POS Kasir Laravel') > 0.5 THEN
+    RAISE EXCEPTION 'FR-CAT-14: "zzz" tidak boleh dianggap cocok';
+  END IF;
+
+  RAISE NOTICE 'OK  FR-CAT-14 word_similarity 0.5: typo cocok, kata sampah tidak';
+END $$;
+
 ROLLBACK;

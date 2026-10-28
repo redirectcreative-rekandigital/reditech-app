@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-label="ERP Gudang Laravel, tangkapan layar 2">
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <rect width="1200" height="88" fill="#58d3db"/>
+  <circle cx="52" cy="44" r="14" fill="#000000"/>
+  <text x="78" y="56" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" fill="#000000">ERP Gudang Laravel</text>
+  <text x="1128" y="56" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#000000">Reditech demo</text>
+  <text x="72" y="200" font-family="Segoe UI, Arial, sans-serif" font-size="52" font-weight="600" fill="#000000">Tangkapan layar 2</text>
+  <text x="72" y="248" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#323232">Data contoh untuk pengembangan — bukan tangkapan layar sungguhan.</text>
+  <rect x="72" y="300" width="1056" height="176" rx="12" fill="#f7f8f8" stroke="#d5e4e8"/>
+  <rect x="96" y="328" width="180" height="16" rx="8" fill="#58d3db"/>
+  <rect x="96" y="364" width="420" height="12" rx="6" fill="#323232" opacity="0.15"/>
+  <rect x="96" y="392" width="360" height="12" rx="6" fill="#323232" opacity="0.15"/>
+  <rect x="96" y="420" width="240" height="12" rx="6" fill="#323232" opacity="0.15"/>
+  <rect x="860" y="328" width="240" height="120" rx="10" fill="#000000" opacity="0.05"/>
+  <text x="72" y="500" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#000000">Isi aplikasi</text>
+  <rect x="72" y="520" width="1056" height="32" rx="6" fill="#f7f8f8" stroke="#d5e4e8"/>
+  <text x="92" y="542" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#323232">Barang</text>
+  <rect x="72" y="564" width="1056" height="32" rx="6" fill="#f7f8f8" stroke="#d5e4e8"/>
+  <text x="92" y="586" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#323232">Purchase Order</text>
+  <rect x="72" y="608" width="1056" height="32" rx="6" fill="#f7f8f8" stroke="#d5e4e8"/>
+  <text x="92" y="630" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#323232">Transfer</text>
+  <rect x="72" y="652" width="1056" height="32" rx="6" fill="#f7f8f8" stroke="#d5e4e8"/>
+  <text x="92" y="674" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#323232">Opname</text>
+</svg>

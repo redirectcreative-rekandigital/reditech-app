@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
+import { join } from "node:path";
+
 import { PrismaClient, type Prisma } from "@prisma/client";
 
 /**
@@ -60,6 +64,8 @@ const items = [
     priceIdr: null,
     noAdsPriceIdr: 3000,
     featured: true,
+    publishedAt: "2026-09-20",
+    releasedAt: "2026-08-15",
     technologies: ["Laravel", "PHP"],
     features: [
       "Transaksi tunai dan QRIS manual",
@@ -92,6 +98,8 @@ const items = [
     priceIdr: 49000,
     noAdsPriceIdr: null,
     featured: false,
+    publishedAt: "2026-10-01",
+    releasedAt: "2026-09-01",
     technologies: ["Next.js", "React Native"],
     features: [
       "RSVP tersimpan di database",
@@ -124,6 +132,8 @@ const items = [
     priceIdr: 249000,
     noAdsPriceIdr: null,
     featured: true,
+    publishedAt: "2026-10-10",
+    releasedAt: "2026-09-25",
     technologies: ["Laravel", "PHP"],
     features: [
       "Multi-gudang dengan transfer dan opname",
@@ -163,6 +173,36 @@ const tutorials = [
     content: `## Kenapa N+1 mahal\n\nSeratus baris daftar dengan satu relasi berarti seratus satu query. Waktu tempuhnya bukan penjumlahan linear, karena tiap query punya biaya perjalanan jaringan.\n\n## Tiga pola\n\n- \`with()\` untuk relasi yang selalu ditampilkan.\n- \`withCount()\` bila hanya butuh jumlah.\n- \`loadMissing()\` untuk relasi yang kadang dipakai.\n\n## Verifikasi\n\nAktifkan \`DB::listen\` di lingkungan lokal dan hitung query per halaman. Angka itu yang jadi patokan, bukan perasaan.`,
   },
 ];
+
+/**
+ * Media contoh: berkas SVG di `public/seed` supaya galeri, thumbnail, dan OG
+ * bisa diuji tanpa R2. Di produksi `Media.key` berisi object key R2.
+ */
+async function upsertSeedMedia(slug: string, title: string, index: number) {
+  const key = `/seed/${slug}-${index}.svg`;
+  const alt = `${title} — tangkapan layar ${index}`;
+
+  let bytes = 0;
+  try {
+    bytes = statSync(join(process.cwd(), "public", key)).size;
+  } catch {
+    // Berkas demo belum dibuat; ukuran 0 tidak menghalangi seed.
+  }
+
+  return prisma.media.upsert({
+    where: { key },
+    update: { alt, bytes },
+    create: {
+      key,
+      alt,
+      width: 1200,
+      height: 760,
+      bytes,
+      mime: "image/svg+xml",
+      checksum: createHash("sha256").update(key).digest("hex"),
+    },
+  });
+}
 
 async function main() {
   const superadmin = await prisma.user.upsert({
@@ -224,8 +264,8 @@ async function main() {
       priceIdr: item.priceIdr,
       noAdsPriceIdr: item.noAdsPriceIdr,
       featured: item.featured,
-      publishedAt: new Date("2026-10-01T00:00:00.000Z"),
-      releasedAt: new Date("2026-09-01T00:00:00.000Z"),
+      publishedAt: new Date(`${item.publishedAt}T00:00:00.000Z`),
+      releasedAt: new Date(`${item.releasedAt}T00:00:00.000Z`),
       categoryId: category.id,
     };
 
@@ -264,6 +304,26 @@ async function main() {
         create: { itemId: saved.id, technologyId },
       });
     }
+
+    const shots = [
+      await upsertSeedMedia(item.slug, item.title, 1),
+      await upsertSeedMedia(item.slug, item.title, 2),
+    ];
+
+    await prisma.item.update({
+      where: { id: saved.id },
+      data: { thumbnailMediaId: shots[0].id },
+    });
+
+    await prisma.itemScreenshot.deleteMany({ where: { itemId: saved.id } });
+    await prisma.itemScreenshot.createMany({
+      data: shots.map((media, index) => ({
+        itemId: saved.id,
+        mediaId: media.id,
+        order: index + 1,
+        caption: `Tangkapan layar ${index + 1}`,
+      })),
+    });
   }
 
   for (const tutorial of tutorials) {
