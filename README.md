@@ -8,7 +8,7 @@ tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `../prd/`.
 
 ## Status
 
-**M2 — Unduhan gratis.** Beranda, katalog, dan detail item sudah dirender server dari PostgreSQL (M1), dan alur unduhan gratis sudah lengkap: interstisial berhitung mundur, cookie gerbang bertanda tangan, token sekali pakai 5 menit, streaming berkas lewat server (tanpa tautan penyimpanan ke browser), kuota 5 unduhan/item/24 jam, serta pencatatan `Download` untuk hasil berhasil maupun ditolak. Belum ada autentikasi, pembayaran, atau panel admin — lihat `../prd/06-milestones.md`.
+**M3 fase 1 — autentikasi admin, MFA, dan RBAC.** Beranda, katalog, dan detail item sudah dirender server dari PostgreSQL (M1), alur unduhan gratis lengkap (M2), dan panel admin kini benar-benar tertutup: login kata sandi, MFA TOTP wajib, sesi yang bisa dicabut, serta kapabilitas per rute. Isi panel (CRUD item, taksonomi, media, tutorial, ulasan, pengaturan, audit) masih kerangka `RouteStub` yang sudah dijaga kapabilitas — lihat `../prd/06-milestones.md` §M3.
 
 ## Stack
 
@@ -19,7 +19,7 @@ tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `../prd/`.
 | Gaya | Tailwind CSS v4 + shadcn/ui (45 primitif) |
 | Database | PostgreSQL 16 + Prisma |
 | Cache/antrean | Redis 7 |
-| Auth | Auth.js |
+| Auth | Sesi DB sendiri (skema kompatibel Auth.js); Auth.js untuk Google OAuth di M4 |
 | Pembayaran | DOKU |
 | Berkas | Google Drive (proxy server) + Cloudflare R2 (gambar) |
 | Deploy | Docker Compose + Caddy (blue-green) di belakang Cloudflare |
@@ -83,7 +83,7 @@ ditandatangani HMAC; di `npm run dev` ada nilai pengembangan. Berkas contoh
 | `npm run db:generate` | Regenerasi Prisma Client |
 | `npm run db:migrate` | Migrasi baru saat pengembangan |
 | `npm run db:deploy` | Terapkan migrasi yang ada (CI/produksi) |
-| `npm run db:seed` | Seed idempoten: superadmin, kategori, teknologi, setting, 3 item + 6 media + 3 ZIP contoh, 2 tutorial |
+| `npm run db:seed` | Seed idempoten: superadmin + akun uji dev, kategori, teknologi, setting, 3 item + 6 media + 3 ZIP contoh, 2 tutorial |
 | `npm run db:studio` | Prisma Studio |
 
 ## Data contoh
@@ -150,6 +150,56 @@ akar penyimpanan.
 - `dl_session` dibuat **sebelum** token diterbitkan agar unduhan pertama ikut
   dihitung kuota.
 
+## Autentikasi admin
+
+Panel `/admin` ditutup untuk publik. Alurnya:
+
+| Langkah | Rute | Hasil |
+| --- | --- | --- |
+| 1 | `GET /admin/*` | Tanpa sesi → `307 /login?redirect=<path>` |
+| 2 | `POST /login` (Server Action) | Kata sandi benar → cookie `rd_session` (8 jam) lalu `307 /admin/mfa`; bila MFA sudah aktif → cookie tantangan `rd_mfa` (5 menit) lalu `307 /login/mfa` |
+| 3 | `/login/mfa` | Kode TOTP **atau** kode pemulihan → sesi penuh + `307 <tujuan>` |
+| 4 | `/admin/mfa` | Enrol: QR + kunci manual, lalu 10 kode pemulihan yang hanya tampil sekali; bisa juga menonaktifkan MFA |
+| 5 | `POST` logout | Baris `sessions` dihapus, cookie dibersihkan |
+
+Otorisasi ditegakkan tiga lapis: **proxy** (status 307/403 final), **setiap halaman**
+(`requireAdmin()` / `requireCapability()`), dan **setiap Server Action**
+(`actionActor()`). Layout panel hanya mengatur tampilan dan navigasi — diuji bahwa
+`forbidden()` di layout tidak menghentikan render segmen halaman.
+
+| Kondisi | `/admin/*` |
+| --- | --- |
+| Anonim | `307 /login?redirect=…` |
+| Cookie sesi tidak sah/kedaluwarsa | `307 /login`, cookie dihapus |
+| `USER` | **403** + halaman `/403` |
+| `ADMIN`/`SUPERADMIN` tanpa MFA | `307 /admin/mfa` |
+| Admin dengan MFA, kapabilitas kurang | **403** |
+| Admin dengan MFA + kapabilitas | `200` |
+
+Akun uji pengembangan dibuat seed hanya bila `NODE_ENV !== "production"`:
+
+| Email | Peran | Kata sandi |
+| --- | --- | --- |
+| `admin@reditech.id` | SUPERADMIN (semua kapabilitas) | `Reditech#2026` |
+| `editor@reditech.id` | ADMIN, bundel Editor (tanpa `user:read`, `setting:*`, `item:publish`) | `Reditech#2026` |
+| `pengguna@reditech.id` | USER — `/admin` selalu `403` | `Reditech#2026` |
+
+Kata sandi disimpan sebagai `scrypt$N$r$p$salt$hash` (modul `node:crypto`, tanpa
+dependensi native). Di produksi seed **tidak** memasang kata sandi sama sekali
+(`SEED_ADMIN_PASSWORD` kosong) karena pemilik masuk lewat Google OAuth/undangan di
+M4; mengisi `SEED_ADMIN_PASSWORD` eksplisit akan memasang ulang kata sandi itu pada
+setiap seed. Nilai kosong diperlakukan sebagai "tidak diisi".
+
+MFA memakai TOTP (RFC 6238, implementasi sendiri) + `qrcode` untuk QR. Rahasia TOTP
+dan kode pemulihan dienkripsi AES-256-GCM dengan `MFA_ENCRYPTION_KEY`; bila kosong,
+kunci diturunkan dari `AUTH_SECRET` (cukup untuk lokal). `AUTH_SECRET` **wajib**
+diisi di produksi.
+
+Penyimpangan dari rencana (detail di `../prd/06-milestones.md` §M3): sesi dikelola
+sendiri karena Auth.js Credentials tidak mendukung database session, sedangkan FR
+mewajibkan sesi yang bisa dicabut. Tabel `sessions` tetap kompatibel dengan skema
+Auth.js sehingga Google OAuth di M4 bisa memakainya.
+
 ## Struktur
 
 ```
@@ -171,13 +221,17 @@ src/
 │   ├── item/         # galeri + lightbox, panel unduhan, tombol bagikan
 │   ├── download/     # AdGateCountdown, FileSizeNotice
 │   ├── media/        # MediaImage (optimizer dilewati untuk aset lokal)
+│   ├── auth/         # formulir masuk, verifikasi MFA, enrol, tombol keluar
+│   ├── system/       # ForbiddenView bersama untuk /403 dan forbidden.tsx
 │   ├── dev/          # RouteStub untuk kerangka M0, pratinjau komponen
 │   └── seo/          # JSON-LD Organization + Product/BreadcrumbList
 ├── lib/              # util bersama (prisma, catalog, items, format, media, og, site)
+│   ├── auth/         # sesi, kata sandi scrypt, TOTP, kapabilitas, aktor
+│   ├── admin/        # audit log, revisi, nav berfilter kapabilitas, peta rute
 │   ├── downloads/    # gate, token, kuota, akses item
 │   ├── storage/      # StorageProvider: local + Google Drive
 │   └── http/         # amplop error API, replay halaman status
-└── proxy.ts          # CSP, HSTS, apex → www, kanonik katalog, status 404/410, dl_gate
+└── proxy.ts          # CSP, HSTS, apex → www, kanonik katalog, status 404/410/403, gerbang admin
 
 prisma/
 ├── schema.prisma     # transkripsi prd/03-data-model.md
@@ -205,14 +259,19 @@ katalog dan item **sebelum** shell PPR dikirim:
 | `/download/<premium>/ads` | `303` ke `/source-code/<slug>?beli=1` |
 | `GET /download/<gratis>/ads` | `200` + `Set-Cookie: dl_gate` |
 | `/api/download/file/AbC…` | **tidak** dialihkan ke huruf kecil (token peka huruf besar-kecil) |
+| `GET /admin/*` tanpa sesi | `307 /login?redirect=<path>` |
+| `GET /admin/*` dengan sesi tidak sah | `307 /login` + hapus `rd_session` |
+| `GET /admin/*` oleh `USER` | `403` + isi halaman `/403` |
+| `GET /admin/*` tanpa MFA (selain `/admin/mfa`) | `307 /admin/mfa` |
+| `GET /login/mfa` tanpa cookie `rd_mfa` | `307 /login` |
 
 `permanentRedirect()` atau `notFound()` di dalam `<Suspense>` hanya menghasilkan
 `200` + pengalihan sisi klien, jadi keduanya tidak dipakai untuk kasus di atas.
 
-Status `410` tidak bisa dipasang lewat `rewrite('/410', { status: 410 })` di
-`next start`: halaman `/410` diprerender dan entri cache-nya membalas `200`.
-Proxy karena itu mengambil HTML `/410` sekali dengan header internal
-`x-reditech-status-page: 1`, lalu membalasnya dengan status `410`. Rasional
+Status `410` dan `403` tidak bisa dipasang lewat `rewrite(..., { status })` di
+`next start`: halaman `/410` dan `/403` diprerender dan entri cache-nya membalas
+`200`. Proxy karena itu mengambil HTML-nya sekali dengan header internal
+`x-reditech-status-page: 1`, lalu membalasnya dengan status yang diminta. Rasional
 lengkap ada di `../prd/12-route-map.md` §9 dan §12.0.
 
 ## Cache
@@ -248,7 +307,11 @@ memanggil `revalidateTag`.
   ada di `../prd/09-superadmin-admin.md` (tab Identitas), implementasi di M3.
 - Kartu sponsor di beranda (FR-CAT-13) dan slot iklan interstisial masih
   placeholder jujur; data sponsor belum ada sampai M6.
-- Auth.js, guard kapabilitas, dan halaman `/admin` yang benar-benar tertutup.
+- Isi panel admin M3 fase 2: CRUD item + gate publikasi, taksonomi, pustaka media,
+  tutorial, `/admin/ulasan`, pengaturan (termasuk aset brand/landing sebagai baris
+  `Media`), audit + ekspor CSV. Halamannya sudah ada dan sudah dijaga kapabilitas,
+  tetapi masih `RouteStub`.
+- Google OAuth dan seluruh alur akun pembeli (`/dashboard`, profil, riwayat) — M4.
 - Integrasi DOKU dan pembayaran; jalur premium berhenti di `?beli=1`.
 - Google Drive sebagai driver produksi (kredensial service account belum ada);
   saat ini `STORAGE_DRIVER=local`.

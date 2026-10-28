@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { recordAudit } from "@/lib/admin/audit";
-import { requireAdminRole } from "@/lib/auth/actor";
+import { getActor, requireAdminRole } from "@/lib/auth/actor";
 import {
   MFA_CHALLENGE_COOKIE,
   beginEnrollment,
@@ -250,6 +250,18 @@ export async function confirmEnrollmentAction(
 }
 
 export async function logoutAction(): Promise<void> {
+  // Dicatat sebelum sesi dihapus. `getActor()` (bukan `requireAdminRole()`)
+  // supaya pengguna biasa yang memanggil logout tidak memicu 403.
+  const actor = await getActor();
+  if (actor) {
+    await recordAudit({
+      actor,
+      action: "auth.logout",
+      entityType: "user",
+      entityId: actor.id,
+    });
+  }
+
   await destroyCurrentSession();
   redirect("/");
 }
