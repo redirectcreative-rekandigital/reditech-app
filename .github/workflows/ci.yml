@@ -12,6 +12,38 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # `next build` merender halaman publik dari PostgreSQL (katalog, item,
+    # tutorial), jadi build butuh database sungguhan — bukan hanya pemeriksaan
+    # tipe. Service ini juga memverifikasi migrasi + seed dari nol di setiap CI.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: reditech
+          POSTGRES_PASSWORD: reditech
+          POSTGRES_DB: reditech
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U reditech -d reditech"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://reditech:reditech@localhost:5432/reditech?schema=public
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Nilai khusus CI: tidak pernah dipakai di produksi.
+      AUTH_SECRET: ci-only-auth-secret-0123456789abcdef
+      DL_GATE_SECRET: ci-only-gate-secret-0123456789abcdef
+      MFA_ENCRYPTION_KEY: ""
+      REDIS_URL: ""
+      STORAGE_DRIVER: local
+      LOCAL_STORAGE_DIR: .storage
+      SEED_ADMIN_PASSWORD: ""
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +55,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+
+      - run: npm run db:generate
+      - run: npm run db:deploy
+      - run: npm run db:seed
+
       - run: npm run build
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
