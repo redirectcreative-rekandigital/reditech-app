@@ -4,11 +4,11 @@ Katalog source code siap pakai untuk developer Indonesia. Unduh gratis lewat ikl
 atau beli tanpa iklan dengan riwayat unduhan dan invoice.
 
 Aplikasi ini adalah **build ulang fungsional** dari Papicode.id dengan identitas,
-tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `../prd/`.
+tema, dan perbaikan tersendiri. Paket PRD lengkap ada di `prd/`.
 
 ## Status
 
-**M3 — admin.** Beranda, katalog, dan detail item dirender server dari PostgreSQL (M1), alur unduhan gratis lengkap (M2), dan panel admin tertutup: login kata sandi, MFA TOTP wajib, sesi yang bisa dicabut, serta kapabilitas per rute. Kategori dan teknologi sudah bisa dikelola penuh dari panel; layar panel lain masih kerangka `RouteStub` yang sudah dijaga kapabilitas — lihat `../prd/06-milestones.md` §M3.
+**M3 — admin.** Beranda, katalog, dan detail item dirender server dari PostgreSQL (M1), alur unduhan gratis lengkap (M2), dan panel admin tertutup: login kata sandi, MFA TOTP wajib, sesi yang bisa dicabut, serta kapabilitas per rute. Kategori dan teknologi sudah bisa dikelola penuh dari panel; layar panel lain masih kerangka `RouteStub` yang sudah dijaga kapabilitas — lihat `prd/06-milestones.md` §M3.
 
 ## Stack
 
@@ -140,7 +140,7 @@ sama (`open(key)` + `supportsRange`), dan `driveFileId` diperlakukan sebagai
 kunci penyimpanan, bukan ID khusus Google. `local` menolak path yang keluar dari
 akar penyimpanan.
 
-**Deviasi dari spesifikasi (disengaja, lihat `../prd/04-api-spec.md` §3.3):**
+**Deviasi dari spesifikasi (disengaja, lihat `prd/04-api-spec.md` §3.3):**
 
 - Token **diklaim sebelum stream** agar dua permintaan paralel tidak memakai satu
   token. Konsekuensinya tautan tidak bisa dilanjutkan setelah koneksi putus.
@@ -195,7 +195,7 @@ dan kode pemulihan dienkripsi AES-256-GCM dengan `MFA_ENCRYPTION_KEY`; bila koso
 kunci diturunkan dari `AUTH_SECRET` (cukup untuk lokal). `AUTH_SECRET` **wajib**
 diisi di produksi.
 
-Penyimpangan dari rencana (detail di `../prd/06-milestones.md` §M3): sesi dikelola
+Penyimpangan dari rencana (detail di `prd/06-milestones.md` §M3): sesi dikelola
 sendiri karena Auth.js Credentials tidak mendukung database session, sedangkan FR
 mewajibkan sesi yang bisa dicabut. Tabel `sessions` tetap kompatibel dengan skema
 Auth.js sehingga Google OAuth di M4 bisa memakainya.
@@ -295,7 +295,7 @@ Status `410` dan `403` tidak bisa dipasang lewat `rewrite(..., { status })` di
 `next start`: halaman `/410` dan `/403` diprerender dan entri cache-nya membalas
 `200`. Proxy karena itu mengambil HTML-nya sekali dengan header internal
 `x-reditech-status-page: 1`, lalu membalasnya dengan status yang diminta. Rasional
-lengkap ada di `../prd/12-route-map.md` §9 dan §12.0.
+lengkap ada di `prd/12-route-map.md` §9 dan §12.0.
 
 ## Cache
 
@@ -317,8 +317,8 @@ memanggil `revalidateTag`.
 
 ## Konvensi
 
-- Warna, tipografi, radius, dan spacing **hanya** dari `../prd/design.md` dan
-  `../prd/10-design-tokens.md`. Tidak ada hex baru di komponen.
+- Warna, tipografi, radius, dan spacing **hanya** dari `prd/design.md` dan
+  `prd/10-design-tokens.md`. Tidak ada hex baru di komponen.
 - `cn` berasal dari paket [`cn`](https://github.com/shadcn-ui/cn) (shadcn 2026),
   bukan `clsx` + `tailwind-merge`.
 - Halaman yang belum diimplementasikan (tutorial, dashboard, admin, checkout, donasi)
@@ -327,7 +327,7 @@ memanggil `revalidateTag`.
 ## Yang belum ada
 
 - Logo, wordmark, favicon, ikon PWA 192/512, dan aset OG statis — desain CRUD-nya
-  ada di `../prd/09-superadmin-admin.md` (tab Identitas), implementasi di M3.
+  ada di `prd/09-superadmin-admin.md` (tab Identitas), implementasi di M3.
 - Kartu sponsor di beranda (FR-CAT-13) dan slot iklan interstisial masih
   placeholder jujur; data sponsor belum ada sampai M6.
 - Isi panel admin M3 fase 2 selain taksonomi: CRUD item + gate publikasi, pustaka
