@@ -1,0 +1,691 @@
+// Skema Reditech — transkripsi `prd/03-data-model.md` §2.
+// Konvensi: camelCase di Prisma, snake_case di tabel (@@map), nominal Int rupiah.
+// Invariant yang tidak bisa dinyatakan Prisma ada di migrasi SQL (`invariants`).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum ItemType {
+  FREE
+  PREMIUM
+}
+
+enum ContentStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  EXPIRED
+  FAILED
+  REFUNDED
+}
+
+enum OrderItemKind {
+  ITEM // pembelian item premium
+  NO_ADS // pembelian "tanpa iklan" untuk item gratis
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum SponsorStatus {
+  PENDING_REVIEW
+  ACTIVE
+  EXPIRED
+  REJECTED
+}
+
+enum SponsorBoard {
+  UMUM
+  WEBSITE_PRODUK
+  DEVELOPER_TOOLS
+  DESAIN_KREATIF
+  AI_OTOMATISASI
+  MARKETING_SEO
+  KREATOR_KONTEN
+  SOSIAL_MEDIA
+  BISNIS_JASA
+  GAME_HIBURAN
+  ECOMMERCE_TOKO
+  EDUKASI_BELAJAR
+}
+
+enum RequestStatus {
+  NEW
+  REVIEWING
+  PLANNED
+  PUBLISHED
+  REJECTED
+}
+
+enum GrantSource {
+  PURCHASE
+  ADMIN_GIFT
+  MIGRATION
+}
+
+enum DownloadPurpose {
+  FREE_AD
+  PREMIUM
+}
+
+enum DownloadResult {
+  GRANTED
+  DENIED_NO_ENTITLEMENT
+  DENIED_RATE_LIMIT
+  DENIED_SUSPENDED
+  DENIED_EXPIRED_TOKEN
+  ERROR
+}
+
+// ─────────────────────── Identitas & sesi ────────────────────
+
+model User {
+  id             String     @id @default(cuid())
+  email          String     @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  passwordHash   String? // hanya akun lama
+  role           Role       @default(USER)
+  permissions    String[]   @default([]) // kapabilitas eksplisit untuk ADMIN
+  status         UserStatus @default(ACTIVE)
+  mfaEnabled     Boolean    @default(false)
+  mfaSecretEnc   String? // terenkripsi AES-GCM dengan kunci env
+  mfaRecoveryEnc String[]   @default([])
+  lastLoginAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  orders         Order[]
+  entitlements   Entitlement[]
+  downloadTokens DownloadToken[]
+  downloads      Download[]
+  requests       AppRequest[]
+  tutorials      Tutorial[]
+  auditLogs      AdminAuditLog[]
+  revisions      Revision[]
+  invitesSent    AdminInvite[]   @relation("InviteSender")
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  ipHash       String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model AdminInvite {
+  id          String    @id @default(cuid())
+  email       String
+  role        Role      @default(ADMIN)
+  permissions String[]  @default([])
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+
+  invitedBy User @relation("InviteSender", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@map("admin_invites")
+}
+
+// ─────────────────────────── Katalog ─────────────────────────
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+
+  @@index([isActive, order])
+  @@map("categories")
+}
+
+model Technology {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  items     ItemTechnology[]
+  tutorials TutorialTag[]
+
+  @@map("technologies")
+}
+
+model Item {
+  id     String        @id @default(cuid())
+  slug   String        @unique
+  title  String
+  type   ItemType
+  status ContentStatus @default(DRAFT)
+
+  shortDescription String  @db.VarChar(200)
+  description      String  @db.Text
+  howItWorks       String? @db.Text
+  license          String?
+  demoUrl          String?
+
+  priceIdr      Int? // wajib bila PREMIUM
+  noAdsPriceIdr Int? // wajib bila FREE
+
+  releasedAt  DateTime?
+  publishedAt DateTime?
+  featured    Boolean   @default(false)
+
+  driveFileId     String?
+  driveFileSize   BigInt?
+  driveVerifiedAt DateTime?
+
+  downloadCount    Int     @default(0) // denormalisasi, sumber: Download GRANTED
+  categoryId       String?
+  thumbnailMediaId String?
+
+  seoTitle       String? @db.VarChar(70)
+  seoDescription String? @db.VarChar(160)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // soft delete
+
+  category     Category?              @relation(fields: [categoryId], references: [id])
+  thumbnail    Media?                 @relation("ItemThumbnail", fields: [thumbnailMediaId], references: [id])
+  technologies ItemTechnology[]
+  features     ItemFeature[]
+  steps        ItemInstallationStep[]
+  screenshots  ItemScreenshot[]
+  priceHistory ItemPriceHistory[]
+  orderItems   OrderItem[]
+  entitlements Entitlement[]
+  tokens       DownloadToken[]
+  downloads    Download[]
+
+  @@index([status, type, publishedAt(sort: Desc)])
+  @@index([status, categoryId, publishedAt(sort: Desc)])
+  @@index([status, downloadCount(sort: Desc)])
+  @@map("items")
+}
+
+model ItemTechnology {
+  itemId       String
+  technologyId String
+
+  item       Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  technology Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, technologyId])
+  @@index([technologyId])
+  @@map("item_technologies")
+}
+
+model ItemFeature {
+  id     String @id @default(cuid())
+  itemId String
+  order  Int
+  text   String @db.VarChar(160)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, order])
+  @@map("item_features")
+}
+
+model ItemInstallationStep {
+  id     String @id @default(cuid())
+  itemId String
+  order  Int
+  title  String @db.VarChar(120)
+  body   String @db.Text
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, order])
+  @@map("item_installation_steps")
+}
+
+model ItemScreenshot {
+  id      String  @id @default(cuid())
+  itemId  String
+  mediaId String
+  order   Int
+  caption String? @db.VarChar(160)
+
+  item  Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  media Media @relation(fields: [mediaId], references: [id])
+
+  @@unique([itemId, order])
+  @@map("item_screenshots")
+}
+
+model ItemPriceHistory {
+  id            String   @id @default(cuid())
+  itemId        String
+  priceIdr      Int?
+  noAdsPriceIdr Int?
+  changedById   String
+  reason        String?  @db.VarChar(200)
+  createdAt     DateTime @default(now())
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, createdAt(sort: Desc)])
+  @@map("item_price_history")
+}
+
+// ─────────────────────────── Media ───────────────────────────
+
+model Media {
+  id          String   @id @default(cuid())
+  key         String   @unique // R2 object key
+  alt         String   @db.VarChar(200)
+  width       Int
+  height      Int
+  bytes       Int
+  mime        String
+  checksum    String   @unique // sha256, untuk dedup
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  itemThumbnails Item[]           @relation("ItemThumbnail")
+  screenshots    ItemScreenshot[]
+  tutorials      Tutorial[]
+  usages         MediaUsage[]
+
+  @@map("media")
+}
+
+model MediaUsage {
+  id         String @id @default(cuid())
+  mediaId    String
+  entityType String @db.VarChar(30)
+  entityId   String
+  field      String @db.VarChar(40)
+
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaId, entityType, entityId, field])
+  @@index([entityType, entityId])
+  @@map("media_usages")
+}
+
+// ─────────────────────────── Tutorial ────────────────────────
+
+model Tutorial {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  title       String        @db.VarChar(140)
+  excerpt     String        @db.VarChar(240)
+  content     String        @db.Text // MDX
+  heroMediaId String?
+  readMinutes Int           @default(5)
+  status      ContentStatus @default(DRAFT)
+  authorId    String
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  hero   Media?        @relation(fields: [heroMediaId], references: [id])
+  author User          @relation(fields: [authorId], references: [id])
+  tags   TutorialTag[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@map("tutorials")
+}
+
+model TutorialTag {
+  tutorialId   String
+  technologyId String
+
+  tutorial   Tutorial   @relation(fields: [tutorialId], references: [id], onDelete: Cascade)
+  technology Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([tutorialId, technologyId])
+  @@map("tutorial_tags")
+}
+
+// ───────────────────── Sponsor & request ─────────────────────
+
+model Sponsor {
+  id            String        @id @default(cuid())
+  link          String
+  amountIdr     Int
+  board         SponsorBoard  @default(UMUM)
+  description   String?       @db.VarChar(140)
+  status        SponsorStatus @default(PENDING_REVIEW)
+  orderId       String?
+  startsAt      DateTime?
+  endsAt        DateTime?
+  moderatedById String?
+  moderatedAt   DateTime?
+  rejectReason  String?       @db.VarChar(200)
+  createdAt     DateTime      @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@index([status, board, amountIdr(sort: Desc)])
+  @@map("sponsors")
+}
+
+model AppRequest {
+  id           String        @id @default(cuid())
+  name         String        @db.VarChar(80)
+  email        String
+  appTitle     String        @db.VarChar(120)
+  technology   String?       @db.VarChar(60)
+  status       RequestStatus @default(NEW)
+  internalNote String?       @db.Text
+  publicNote   String?       @db.Text
+  userId       String?
+  tokenHash    String        @unique // untuk melihat status tanpa login
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([email])
+  @@map("app_requests")
+}
+
+// ─────────────────────── Pesanan & akses ─────────────────────
+
+model Order {
+  id         String      @id @default(cuid())
+  orderNo    String      @unique // mis. RT-20261028-8F3K2A
+  userId     String?
+  guestEmail String?
+  status     OrderStatus @default(PENDING)
+
+  subtotalIdr   Int
+  serviceFeeIdr Int
+  totalIdr      Int
+
+  providerRef    String?   @unique // invoice number DOKU
+  idempotencyKey String?   @unique
+  expiresAt      DateTime
+  paidAt         DateTime?
+  fulfilledAt    DateTime?
+  refundedAt     DateTime?
+  refundReason   String?   @db.VarChar(300)
+  ipHash         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id])
+  items        OrderItem[]
+  payments     Payment[]
+  entitlements Entitlement[]
+  sponsors     Sponsor[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([guestEmail])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String        @id @default(cuid())
+  orderId       String
+  itemId        String
+  kind          OrderItemKind @default(ITEM)
+  titleSnapshot String        @db.VarChar(140)
+  priceIdr      Int
+  quantity      Int           @default(1)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item  @relation(fields: [itemId], references: [id])
+
+  @@unique([orderId, itemId, kind])
+  @@map("order_items")
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String
+  provider    String        @default("DOKU")
+  providerRef String        @unique
+  amountIdr   Int
+  status      PaymentStatus @default(PENDING)
+  method      String?       @db.VarChar(40) // QRIS, VA_BCA, ...
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id             String    @id @default(cuid())
+  provider       String    @default("DOKU")
+  eventId        String    @unique // idempotency webhook
+  orderId        String?
+  signatureValid Boolean   @default(false)
+  payload        Json
+  processedAt    DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@index([orderId])
+  @@map("payment_events")
+}
+
+model Entitlement {
+  id           String      @id @default(cuid())
+  userId       String
+  itemId       String
+  orderId      String?
+  source       GrantSource @default(PURCHASE)
+  grantedAt    DateTime    @default(now())
+  revokedAt    DateTime?
+  revokedById  String?
+  revokeReason String?     @db.VarChar(200)
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item  Item   @relation(fields: [itemId], references: [id])
+  order Order? @relation(fields: [orderId], references: [id])
+
+  // INV-06: unik hanya untuk baris aktif. Prisma tidak bisa menyatakan
+  // partial index, jadi `entitlements_active_unique` dibuat di migrasi
+  // `invariants`. `@@unique` penuh akan memblokir grant ulang setelah revoke.
+  @@index([userId, itemId])
+  @@index([itemId])
+  @@map("entitlements")
+}
+
+model DownloadToken {
+  id                String          @id @default(cuid())
+  tokenHash         String          @unique
+  itemId            String
+  userId            String?
+  downloadSessionId String? // cookie anonim (hash)
+  purpose           DownloadPurpose
+  expiresAt         DateTime
+  maxUses           Int             @default(1)
+  uses              Int             @default(0)
+  usedAt            DateTime?
+  ipHash            String?
+  createdAt         DateTime        @default(now())
+
+  item Item  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([itemId, createdAt(sort: Desc)])
+  @@index([userId, itemId])
+  @@map("download_tokens")
+}
+
+model Download {
+  id        String          @id @default(cuid())
+  itemId    String
+  userId    String?
+  tokenId   String?
+  purpose   DownloadPurpose
+  result    DownloadResult
+  bytesSent BigInt?
+  ipHash    String?
+  uaHash    String?
+  referrer  String?         @db.VarChar(200)
+  createdAt DateTime        @default(now())
+
+  item Item  @relation(fields: [itemId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([itemId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([result, createdAt])
+  @@map("downloads")
+}
+
+// ─────────────────── Audit, revisi, pengaturan ───────────────
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorEmail String
+  action     String   @db.VarChar(60)
+  entityType String   @db.VarChar(30)
+  entityId   String
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?  @db.VarChar(300)
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([createdAt])
+  @@map("admin_audit_logs")
+}
+
+model Revision {
+  id          String   @id @default(cuid())
+  entityType  String   @db.VarChar(30)
+  entityId    String
+  version     Int
+  snapshot    Json
+  createdById String
+  createdAt   DateTime @default(now())
+
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@unique([entityType, entityId, version])
+  @@map("revisions")
+}
+
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model Redirect {
+  id        String   @id @default(cuid())
+  fromPath  String   @unique
+  toPath    String
+  status    Int      @default(308)
+  createdAt DateTime @default(now())
+
+  @@map("redirects")
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  template  String   @db.VarChar(60)
+  subject   String   @db.VarChar(200)
+  status    String   @db.VarChar(20) // QUEUED, SENT, FAILED
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([to, createdAt(sort: Desc)])
+  @@map("email_logs")
+}

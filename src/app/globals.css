@@ -1,26 +1,187 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Celestial — design.md */
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #000000;
+
+  --card: #f7f8f8;
+  --card-foreground: #000000;
+
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+
+  --primary: #58d3db;
+  --primary-foreground: #000000;
+
+  --secondary: #202020;
+  --secondary-foreground: #ffffff;
+
+  --muted: #f1f5f9;
+  --muted-foreground: #323232;
+
+  --accent: #e3ecf6;
+  --accent-foreground: #323232;
+
+  --destructive: #f4212e;
+  --destructive-foreground: #000000;
+
+  --border: #e1eaef;
+  --input: #f7f9fa;
+  --ring: #58d3db;
+
+  --radius: 0.5rem;
+
+  --sidebar: #f7f8f8;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #58d3db;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #e3ecf6;
+  --sidebar-accent-foreground: #323232;
+  --sidebar-border: #e1eaef;
+  --sidebar-ring: #58d3db;
+
+  --chart-1: #58d3db;
+  --chart-2: #00b87a;
+  --chart-3: #f7b928;
+  --chart-4: #17bf63;
+  --chart-5: #e0245e;
+
+  /* Turunan: hanya color-mix dari token di atas */
+  --border-strong: color-mix(in oklab, var(--border) 60%, var(--foreground));
+  --ring-halo: color-mix(in oklab, var(--ring) 30%, transparent);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.18);
+}
+
+.dark {
+  --background: #121212;
+  --foreground: #e7e9ea;
+
+  --card: #17181c;
+  --card-foreground: #e7e9ea;
+
+  --popover: #17181c;
+  --popover-foreground: #e7e9ea;
+
+  --primary: #58d3db;
+  --primary-foreground: #000000;
+
+  --secondary: #e7e9ea;
+  --secondary-foreground: #121212;
+
+  --muted: #1a1d1e;
+  --muted-foreground: #8b98a5;
+
+  --accent: #12383b;
+  --accent-foreground: #e7e9ea;
+
+  --destructive: #f4212e;
+  --destructive-foreground: #000000;
+
+  --border: #2f3336;
+  --input: #1a1d1e;
+  --ring: #58d3db;
+
+  --sidebar: #17181c;
+  --sidebar-foreground: #e7e9ea;
+  --sidebar-primary: #58d3db;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #12383b;
+  --sidebar-accent-foreground: #e7e9ea;
+  --sidebar-border: #2f3336;
+  --sidebar-ring: #58d3db;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.8);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
+  --container-shell: 75rem;
+  --container-prose: 68ch;
+
+  --font-sans: var(--font-open-sans), "Open Sans", system-ui, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --font-mono: Menlo, "DejaVu Sans Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Fokus dua lapis — `10-design-tokens.md` 9.3.
+   `!important` dibutuhkan karena primitif shadcn membawa `outline-none`;
+   tanpa ini outline hitam (21:1) kalah dan hanya tersisa cincin aqua 1,79:1. */
+@utility focus-ring {
+  outline: 2px solid var(--foreground) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--ring-halo);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Jaring pengaman: setiap elemen fokus tetap punya penanda 21:1. */
+  :focus-visible {
+    outline: 2px solid var(--foreground) !important;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
 }

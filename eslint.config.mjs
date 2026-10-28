@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Keluaran `shadcn add`: jangan diedit manual (lihat prd/11 §2), dan
+    // beberapa pola resminya belum lolos aturan react-hooks/purity baru.
+    "src/components/ui/**",
+    "src/hooks/use-mobile.ts",
   ]),
 ]);
 
