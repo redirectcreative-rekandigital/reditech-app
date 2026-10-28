@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { PrismaClient, type Prisma } from "@prisma/client";
 
+import { ensureDemoArchive } from "./seed-storage";
+
 /**
  * Seed minimum — `03-data-model.md` §5.
  * Idempoten: semua penulisan memakai `upsert` berdasarkan kunci natural
@@ -253,6 +255,17 @@ async function main() {
       where: { slug: item.categorySlug },
     });
 
+    // Berkas demo: hanya mengisi key bila item belum punya berkas sungguhan
+    // (ID Drive dari admin tidak boleh tertimpa seed, termasuk ukurannya).
+    const existing = await prisma.item.findUnique({
+      where: { slug: item.slug },
+      select: { driveFileId: true },
+    });
+    const keepExisting = Boolean(
+      existing?.driveFileId && !existing.driveFileId.startsWith("seed/"),
+    );
+    const archive = keepExisting ? null : ensureDemoArchive(item.slug, item.title);
+
     const data = {
       title: item.title,
       type: item.type,
@@ -266,6 +279,13 @@ async function main() {
       featured: item.featured,
       publishedAt: new Date(`${item.publishedAt}T00:00:00.000Z`),
       releasedAt: new Date(`${item.releasedAt}T00:00:00.000Z`),
+      ...(archive
+        ? {
+            driveFileId: archive.key,
+            driveFileSize: BigInt(archive.bytes),
+            driveVerifiedAt: new Date(),
+          }
+        : {}),
       categoryId: category.id,
     };
 

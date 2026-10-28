@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 
 export type ItemStatus = "published" | "archived" | "missing";
 
+/** Status + tipe untuk jalur unduhan (proxy harus tahu sebelum render). */
+export type ItemAccess = { status: ItemStatus; type: "FREE" | "PREMIUM" };
+
 /**
  * Status ringkas untuk proxy: `DRAFT`/`IN_REVIEW` tidak boleh terlihat, jadi
  * diperlakukan sama seperti tidak ada. `ARCHIVED` dipetakan ke `410` oleh proxy
@@ -21,6 +24,28 @@ export async function getItemStatus(slug: string): Promise<ItemStatus> {
   if (item.status === "ARCHIVED") return "archived";
   if (item.status === "PUBLISHED") return "published";
   return "missing";
+}
+
+/**
+ * Status + tipe item untuk halaman unduhan. Sengaja tidak di-cache: proxy harus
+ * melihat arsip atau perubahan tipe segera, sama seperti `getItemStatus`.
+ */
+export async function getItemAccess(slug: string): Promise<ItemAccess | null> {
+  const item = await prisma.item.findUnique({
+    where: { slug },
+    select: { status: true, type: true, deletedAt: true },
+  });
+
+  if (!item) return null;
+
+  const status: ItemStatus =
+    item.deletedAt || (item.status !== "PUBLISHED" && item.status !== "ARCHIVED")
+      ? "missing"
+      : item.status === "ARCHIVED"
+        ? "archived"
+        : "published";
+
+  return { status, type: item.type };
 }
 
 const detailSelect = {

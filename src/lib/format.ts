@@ -24,3 +24,14 @@ export function formatDate(value: Date): string {
 export function formatCount(value: number): string {
   return new Intl.NumberFormat("id-ID").format(value);
 }
+
+/** "18,3 MB" — ukuran berkas untuk peringatan unduhan (FR-DL-09). */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** exponent;
+
+  return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: value < 10 ? 1 : 0 }).format(value)} ${units[exponent]}`;
+}

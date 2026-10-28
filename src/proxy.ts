@@ -6,7 +6,13 @@ import {
   countCatalogForFilters,
   parseCatalogFilters,
 } from "@/lib/catalog";
-import { getItemStatus } from "@/lib/items";
+import {
+  GATE_COOKIE,
+  gateCookieOptions,
+  signGate,
+  verifyGate,
+} from "@/lib/downloads/gate";
+import { getItemAccess, getItemStatus } from "@/lib/items";
 
 /**
  * Proxy (dulu `middleware`) — `12-route-map.md` 12.
@@ -21,8 +27,18 @@ const APEX_HOST = "reditech.id";
 const CANONICAL_HOST = "www.reditech.id";
 
 const PRIVATE_PATH = /^\/(admin|dashboard)(\/|$)/;
+const DOWNLOAD_PATH = /^\/download(\/|$)/;
 const API_PATH = /^\/api(\/|$)/;
 const ITEM_PATH = /^\/source-code\/([^/]+)$/;
+const ADS_PATH = /^\/download\/([^/]+)\/ads$/;
+const EXPIRED_PATH = /^\/download\/([^/]+)\/expired$/;
+
+/**
+ * Token unduhan adalah nilai acak base64url yang **peka huruf besar-kecil**.
+ * Menurunkan path ini akan mengubah hash token dan membuat tautan yang baru
+ * terbit langsung tidak dikenal (terverifikasi: `308` lalu `404`).
+ */
+const CASE_SENSITIVE_PATH = /^\/api\/download\/file\//;
 
 const CATALOG_PARAMS = new Set(["kategori", "page", "search", "sort", "type"]);
 
@@ -69,8 +85,10 @@ function applyHeaders(response: NextResponse, requestId: string, lowerPath: stri
   response.headers.set("x-frame-options", "DENY");
   response.headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
 
-  if (PRIVATE_PATH.test(lowerPath)) {
-    // Panel internal tidak boleh masuk indeks, termasuk bila URL bocor.
+  if (PRIVATE_PATH.test(lowerPath) || DOWNLOAD_PATH.test(lowerPath)) {
+    // Panel internal dan halaman unduhan tidak boleh masuk indeks. Halaman
+    // unduhan juga menyetel cookie gerbang dan memuat hitung mundur per
+    // permintaan, jadi tidak boleh disimpan cache bersama.
     response.headers.set("x-robots-tag", "noindex, nofollow");
     response.headers.set(
       "cache-control",
@@ -78,6 +96,7 @@ function applyHeaders(response: NextResponse, requestId: string, lowerPath: stri
     );
   } else if (API_PATH.test(lowerPath)) {
     response.headers.set("cache-control", "private, no-store");
+    response.headers.set("x-robots-tag", "noindex, nofollow");
   } else if (method === "GET") {
     // HTML publik: Cloudflare tidak meng-cache, tetapi boleh direvalidasi.
     response.headers.set("cache-control", "public, max-age=0, must-revalidate");
@@ -90,7 +109,8 @@ function applyHeaders(response: NextResponse, requestId: string, lowerPath: stri
  * `page` tidak sah atau di luar rentang → URL kanonik (308). Parameter yang
  * tidak dikenal (mis. `utm_source`) membuat normalisasi dilewati supaya
  * kampanye tidak hilang.
- */async function catalogRedirect(nextUrl: NextRequest["nextUrl"]): Promise<string | null> {
+ */
+async function catalogRedirect(nextUrl: NextRequest["nextUrl"]): Promise<string | null> {
   const filters = parseCatalogFilters(Object.fromEntries(nextUrl.searchParams));
 
   if (filters.page === 0) {
@@ -156,10 +176,16 @@ export default async function proxy(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const lowerPath = nextUrl.pathname.toLowerCase();
 
+  // Teruskan `x-request-id` ke route handler/page agar amplop error memakai
+  // nilai yang sama dengan header respons (bukan id acak baru).
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-request-id", requestId);
+  const forward = () => NextResponse.next({ request: { headers: requestHeaders } });
+
   // Permintaan internal untuk mengambil HTML halaman status: jangan diproses
   // ulang, cukup render halamannya.
   if (request.headers.get(STATUS_PAGE_HEADER) === "1") {
-    return applyHeaders(NextResponse.next(), requestId, lowerPath, request.method);
+    return applyHeaders(forward(), requestId, lowerPath, request.method);
   }
 
   // 1. Apex → www. Caddy juga menangani ini; proxy menjadi jaring pengaman.
@@ -169,7 +195,7 @@ export default async function proxy(request: NextRequest) {
   }
 
   // 2. Path huruf besar → huruf kecil (slug kanonik selalu huruf kecil).
-  if (lowerPath !== nextUrl.pathname) {
+  if (lowerPath !== nextUrl.pathname && !CASE_SENSITIVE_PATH.test(nextUrl.pathname)) {
     return NextResponse.redirect(new URL(`${lowerPath}${nextUrl.search}`, nextUrl), 308);
   }
 
@@ -210,8 +236,56 @@ export default async function proxy(request: NextRequest) {
     }
   }
 
-  // 5. Header keamanan dan kebijakan cache.
-  return applyHeaders(NextResponse.next(), requestId, lowerPath, request.method);
+  // 5. Halaman unduhan: 404/410 ditegakkan sebelum render. Cookie `dl_gate`
+  //    juga dipasang di sini karena Server Component tidak boleh menulis cookie;
+  //    render pertama halaman iklan belum melihat cookie itu, jadi hitung
+  //    mundurnya dimulai dari durasi penuh. Setelah itu waktu dihitung server
+  //    dari cookie, sehingga memuat ulang tidak mengulang hitung mundur.
+  const downloadMatch = ADS_PATH.exec(lowerPath) ?? EXPIRED_PATH.exec(lowerPath);
+  if (request.method === "GET" && downloadMatch) {
+    const isAdsPage = ADS_PATH.test(lowerPath);
+    let slug: string | null = null;
+
+    try {
+      slug = decodeURIComponent(downloadMatch[1]);
+      const access = await getItemAccess(slug);
+
+      if (!access || access.status === "missing") {
+        return applyHeaders(
+          NextResponse.rewrite(new URL("/404", nextUrl), { status: 404 }),
+          requestId,
+          lowerPath,
+          request.method,
+        );
+      }
+
+      if (access.status === "archived") {
+        return await statusPage(request, "/410", 410, requestId);
+      }
+
+      // Item premium tidak punya jalur iklan; arahkan ke halaman pembelian
+      // sebelum shell PPR terkirim (di dalam render, `redirect()` hanya
+      // menghasilkan pengalihan sisi klien dengan status 200).
+      if (isAdsPage && access.type === "PREMIUM") {
+        return NextResponse.redirect(
+          new URL(`/source-code/${slug}?beli=1`, nextUrl),
+          303,
+        );
+      }
+    } catch {
+      // Database tidak tersedia atau slug rusak: biarkan halaman menangani.
+      slug = null;
+    }
+
+    if (slug && isAdsPage && !verifyGate(request.cookies.get(GATE_COOKIE)?.value, slug)) {
+      const response = forward();
+      response.cookies.set(GATE_COOKIE, signGate(slug), gateCookieOptions());
+      return applyHeaders(response, requestId, lowerPath, request.method);
+    }
+  }
+
+  // 6. Header keamanan dan kebijakan cache.
+  return applyHeaders(forward(), requestId, lowerPath, request.method);
 }
 
 export const config = {

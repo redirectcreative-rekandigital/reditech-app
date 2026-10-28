@@ -71,14 +71,14 @@ export function DownloadPanel({ item }: { item: ItemDetail }) {
             Bayar QRIS, lalu tautan Drive terbuka langsung.
           </p>
 
-          <Link
-            href={`/download/${item.slug}/ads`}
+          <a
+            href={`/api/download/${item.slug}`}
             className="text-sm font-medium underline underline-offset-4 hover:text-muted-foreground focus-ring"
           >
             Download Gratis (lewat iklan)
-          </Link>
+          </a>
           <p className="text-xs text-muted-foreground">
-            Melewati halaman iklan dan hitung mundur sebelum tautan aktif.
+            Membuka halaman iklan dengan hitung mundur sebelum tautan aktif.
           </p>
         </div>
       )}

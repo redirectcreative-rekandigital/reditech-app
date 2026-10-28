@@ -20,6 +20,9 @@
 # production
 /build
 
+# penyimpanan berkas lokal (pengembangan: `STORAGE_DRIVER=local`)
+/.storage/
+
 # misc
 .DS_Store
 *.pem
